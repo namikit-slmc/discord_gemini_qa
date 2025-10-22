@@ -12,7 +12,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # キーが設定されていない場合はエラーを出して終了
 if not DISCORD_TOKEN or not GEMINI_API_KEY:
-    print("エラー: 環境変数 DISCORD_BOT_TOKEN または GEMINI_API_KEY が設定されていません。")
+    print("エラー: 環境変数 DISCORD_BOT_TOKEN または GEMINI_API_KEY が設定されていません。", flush=True)
     exit()
 
 # --- (2) Gemini APIの設定 ---
@@ -44,7 +44,7 @@ def run_web_server():
 @client.event
 async def on_ready():
     """Botが起動したときに呼ばれる"""
-    print(f'{client.user} としてログインしました')
+    print(f'{client.user} としてログインしました', flush=True)
 
 @client.event
 async def on_message(message):
@@ -69,7 +69,7 @@ async def on_message(message):
             await message.reply(answer)
 
         except Exception as e:
-            print(f"Gemini APIエラー: {e}")
+            print(f"Gemini APIエラー: {e}", flush=True)
             await message.reply("ごめんなさい、AIとの通信中にエラーが発生しました。")
 
 # --- (6) BotとWebサーバーの同時起動 ---
