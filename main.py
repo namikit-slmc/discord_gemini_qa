@@ -17,7 +17,7 @@ if not DISCORD_TOKEN or not GEMINI_API_KEY:
 
 # --- (2) Gemini APIの設定 ---
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 # --- (3) Discord Botの設定 ---
 intents = discord.Intents.default()
