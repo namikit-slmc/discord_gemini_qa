@@ -6,17 +6,17 @@ from flask import Flask
 from threading import Thread
 
 # --- (1) 各種キーを「環境変数」から取得 ---
-# !! 重要 !! Renderの「Environment」タブでこれらの値を設定します
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# キーが設定されていない場合はエラーを出して終了
 if not DISCORD_TOKEN or not GEMINI_API_KEY:
+    # (変更点) flush=True を追加
     print("エラー: 環境変数 DISCORD_BOT_TOKEN または GEMINI_API_KEY が設定されていません。", flush=True)
     exit()
 
 # --- (2) Gemini APIの設定 ---
 genai.configure(api_key=GEMINI_API_KEY)
+# モデルを 'gemini-2.5-flash' に指定
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 # --- (3) Discord Botの設定 ---
@@ -26,7 +26,6 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 # --- (4) RenderのためのWebサーバー設定 (Flask) ---
-# これがRenderのヘルスチェックに応答し、スリープを防ぎます
 app = Flask('')
 
 @app.route('/')
@@ -36,7 +35,6 @@ def home():
 
 def run_web_server():
     """Webサーバーを別スレッドで実行する"""
-    # RenderはPORT環境変数に自動でポート番号を割り当てます
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -44,6 +42,7 @@ def run_web_server():
 @client.event
 async def on_ready():
     """Botが起動したときに呼ばれる"""
+    # (変更点) flush=True を追加
     print(f'{client.user} としてログインしました', flush=True)
 
 @client.event
@@ -62,27 +61,51 @@ async def on_message(message):
             return
 
         try:
+            # 「考え中...」と表示
             async with message.channel.typing():
                 response = await model.generate_content_async(question)
                 answer = response.text
-            
-            await message.reply(answer)
+
+            # --- 回答の長さをチェックして分割送信 ---
+            if len(answer) <= 2000:
+                # 2000文字以下なら、そのままリプライ
+                await message.reply(answer)
+            else:
+                # 2000文字を超える場合
+                # (変更点) flush=True を追加
+                print(f"回答が2000文字を超えました (長さ: {len(answer)})。分割して送信します。", flush=True)
+                
+                # 最初の2000文字をリプライとして送信
+                first_chunk = answer[:2000]
+                await message.reply(first_chunk)
+                
+                # 残りの部分を2000文字ごとに区切って送信
+                remaining_answer = answer[2000:]
+                for i in range(0, len(remaining_answer), 2000):
+                    chunk = remaining_answer[i:i+2000]
+                    # 2回目以降はリプライではなく、チャンネルにそのまま送信
+                    await message.channel.send(chunk)
+            # --- (変更ここまで) ---
 
         except Exception as e:
-            print(f"Gemini APIエラー: {e}", flush=True)
+            # シンプルなエラー処理
+            # (変更点) flush=True を追加
+            print(f"!! 予期せぬエラー発生 !!: {e}", flush=True)
             await message.reply("ごめんなさい、AIとの通信中にエラーが発生しました。")
 
 # --- (6) BotとWebサーバーの同時起動 ---
 if __name__ == "__main__":
     # Webサーバーを別スレッドで起動
     server_thread = Thread(target=run_web_server)
-    server_thread.daemon = True  # メインスレッドが終了したら、こちらも終了
+    server_thread.daemon = True
     server_thread.start()
     
     # Discord Botをメインスレッドで起動
     try:
         client.run(DISCORD_TOKEN)
     except discord.errors.LoginFailure:
-        print("エラー: Discordトークンが不正です。Renderの環境変数を確認してください。")
+        # (変更点) flush=True を追加
+        print("エラー: Discordトークンが不正です。Renderの環境変数を確認してください。", flush=True)
     except Exception as e:
-        print(f"Botの実行中に予期せぬエラーが発生しました: {e}")
+        # (変更点) flush=True を追加
+        print(f"Botの実行中に予期せぬエラーが発生しました: {e}", flush=True)
