@@ -5,19 +5,21 @@ import os
 from flask import Flask
 from threading import Thread
 
+# (変更点) Google APIの例外（ResourceExhaustedなど）をインポート
+import google.api_core.exceptions as google_exceptions
+
 # --- (1) 各種キーを「環境変数」から取得 ---
-# !! 重要 !! Renderの「Environment」タブでこれらの値を設定します
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# キーが設定されていない場合はエラーを出して終了
 if not DISCORD_TOKEN or not GEMINI_API_KEY:
     print("エラー: 環境変数 DISCORD_BOT_TOKEN または GEMINI_API_KEY が設定されていません。")
     exit()
 
 # --- (2) Gemini APIの設定 ---
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+# (変更点) モデルを 'gemini-1.5-flash' に指定
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- (3) Discord Botの設定 ---
 intents = discord.Intents.default()
@@ -26,7 +28,6 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 # --- (4) RenderのためのWebサーバー設定 (Flask) ---
-# これがRenderのヘルスチェックに応答し、スリープを防ぎます
 app = Flask('')
 
 @app.route('/')
@@ -36,7 +37,6 @@ def home():
 
 def run_web_server():
     """Webサーバーを別スレッドで実行する"""
-    # RenderはPORT環境変数に自動でポート番号を割り当てます
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -62,21 +62,39 @@ async def on_message(message):
             return
 
         try:
+            # 「考え中...」と表示
             async with message.channel.typing():
                 response = await model.generate_content_async(question)
                 answer = response.text
             
             await message.reply(answer)
 
+        # --- (変更点) エラーハンドリングを強化 ---
+        
+        # (9-1) Gemini APIのレート制限 (混雑) エラーをキャッチ
+        except google_exceptions.ResourceExhausted as e:
+            print(f"Gemini API レート制限エラー: {e}")
+            await message.reply(
+                "ごめんなさい、今AIがとっても混み合っています 😥\n"
+                "少し時間を置いてから、もう一度試してみてください。"
+            )
+
+        # (9-2) その他のエラー (APIキー間違い、安全設定ブロックなど)
         except Exception as e:
-            print(f"Gemini APIエラー: {e}")
-            await message.reply("ごめんなさい、AIとの通信中にエラーが発生しました。")
+            print(f"!! 予期せぬエラー発生 !!: {e}")
+            
+            # 安全設定でブロックされた場合の簡易的な判定
+            if "safety" in str(e).lower() or "blocked" in str(e).lower():
+                await message.reply("ごめんなさい、その質問には安全上の理由でお答えできません。")
+            else:
+                await message.reply("ごめんなさい、AIとの通信中に予期せぬエラーが発生しました。")
+        # --- (変更ここまで) ---
 
 # --- (6) BotとWebサーバーの同時起動 ---
 if __name__ == "__main__":
     # Webサーバーを別スレッドで起動
     server_thread = Thread(target=run_web_server)
-    server_thread.daemon = True  # メインスレッドが終了したら、こちらも終了
+    server_thread.daemon = True
     server_thread.start()
     
     # Discord Botをメインスレッドで起動
